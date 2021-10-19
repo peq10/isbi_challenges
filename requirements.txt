@@ -1,0 +1,4 @@
+python==3.9
+pytorch==1.9
+pytorch-cpu==1.9
+torchvision==0.10

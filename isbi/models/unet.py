@@ -8,6 +8,7 @@ Created on Tue Oct 19 14:42:48 2021
 import torch
 import torch.nn
 
+import numpy as np
 
 def double_conv(channels_in,channels_out):
     '''
@@ -21,6 +22,48 @@ def double_conv(channels_in,channels_out):
         torch.nn.ReLU(inplace = True)
         )
     return layers
+
+def get_valid_size(image_size):
+    #returns the largest integer for which the unet will work
+    #this is all due to the unpadded convolutions and pooling
+    print('hello')
+    for i in range(image_size - image_size % 2, 2, -2):
+        try:
+            calculate_crops(i, recurse = False)
+            return i
+        except Exception:
+            continue
+    
+
+def calculate_crops(image_size,recurse = True):
+    #calculates what crops we need for the concatenation in the decoder
+    #this is due to the unpadded convolutions and pooling
+    #slightly hacky think to stop recursion
+    down_sizes = np.zeros(5, dtype = int)
+    sz = image_size
+    for i in range(5):
+        sz = (int(sz) - 4)
+        down_sizes[i] = sz
+        sz /= 2
+        
+    up_sizes = np.zeros_like(down_sizes)
+    
+    sz *=2
+    for i in range(5):
+        sz *= 2
+        up_sizes[i] = sz
+        sz -= 4
+        
+    crops = (down_sizes[-2::-1] - up_sizes[:-1])/2
+    if any(crops%2 != 0):
+        #hacky way to do this - refactor
+        if recurse:
+            closest_valid_size = get_valid_size(image_size)
+        else:
+            closest_valid_size = None
+        raise ValueError(f"Image wrong size. crop to {closest_valid_size}")
+    
+    return crops.astype(int)
 
 class Unet(torch.nn.Module):
     '''
@@ -44,9 +87,6 @@ class Unet(torch.nn.Module):
         #so have the same number of channels
         self.decoder_convs = [double_conv(*x) for x in zip(channels_out,channels_in)][:0:-1]
         
-        #A helper to tell us how much to crop when concatenating on the decoder
-        self.crops = [4,16,40,88]
-        
         self.output_conv = torch.nn.Conv2d(64, 2, kernel_size =  1, padding = 'valid')
         self.sigmoid = torch.nn.Sigmoid()
         
@@ -57,6 +97,7 @@ class Unet(torch.nn.Module):
         We iteratively encode then decode the image before 
 
         '''
+        self.crops = calculate_crops(image.shape[-1])
         
         #first we encode the image
         self.intermediates = [image]
@@ -67,10 +108,8 @@ class Unet(torch.nn.Module):
             if idx != len(self.encoder_convs) -1:
                 self.intermediates.append(self.max_pool_2x2(self.intermediates[-1]))
         
-        
         #We don't actually need to save these intermediate layers now as they are
         #not used, but they aree useful for debugging so for now we will
-
         for idx, crop, up_conv_layer, decoder_conv_layer in zip(range(5), self.crops, self.up_convs,self.decoder_convs):
             #upsample and concatenate with encoded result for passover connections
             self.intermediates.append(torch.cat([self.intermediates[7 - 2*idx][...,crop:-crop,crop:-crop], 
