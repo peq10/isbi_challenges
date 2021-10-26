@@ -16,9 +16,9 @@ def double_conv(channels_in,channels_out):
 
     '''
     layers = torch.nn.Sequential(
-        torch.nn.Conv2d(channels_in, channels_out, kernel_size = 3, padding = 'valid'),
+        torch.nn.Conv2d(channels_in, channels_out, kernel_size = 3, padding = 0),
         torch.nn.ReLU(inplace = True),
-        torch.nn.Conv2d(channels_out, channels_out, kernel_size = 3, padding = 'valid'),
+        torch.nn.Conv2d(channels_out, channels_out, kernel_size = 3, padding = 0),
         torch.nn.ReLU(inplace = True)
         )
     return layers
@@ -65,6 +65,14 @@ def calculate_crops(image_size,recurse = True):
     
     return crops.astype(int)
 
+def init_normal_weights(layer):
+    name = layer.__class__.__name__
+    if name.find('Linear') != -1:
+        y = layer.in_features
+        #see unet paper for reasoning
+        layer.weight.data.normal_(0.0,np.sqrt(2/y))
+        layer.bias.data.fill_(0)
+
 class Unet(torch.nn.Module):
     '''
      Reproducing the Unet model from https://arxiv.org/pdf/1505.04597v1.pdf
@@ -87,7 +95,7 @@ class Unet(torch.nn.Module):
         #so have the same number of channels
         self.decoder_convs = [double_conv(*x) for x in zip(channels_out,channels_in)][:0:-1]
         
-        self.output_conv = torch.nn.Conv2d(64, 2, kernel_size =  1, padding = 'valid')
+        self.output_conv = torch.nn.Conv2d(64, 2, kernel_size =  1, padding = 0)
         self.sigmoid = torch.nn.Sigmoid()
         
         
@@ -121,9 +129,10 @@ class Unet(torch.nn.Module):
         #finally use 1x1 conv sigmoid activation to map to seg
         out = self.sigmoid(self.output_conv(self.intermediates[-1]))
         
-        print(out.shape)
         return out
         
+    def pretraining_initialise(self):
+        self.apply(init_normal_weights)
         
 if __name__ == '__main__':
     image = torch.rand(1,1,572,572)
