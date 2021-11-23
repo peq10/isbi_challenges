@@ -10,34 +10,38 @@ import torch
 import torch.nn
 import torchvision.transforms as torchtransforms
 import torch.optim as optim
+import numpy as np
+import matplotlib.pyplot as plt
 
 from isbi.models import unet,dataloader
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('Using {} device'.format(device))
 
-def transform_im(im):
-    return torchtransforms.CenterCrop(508)((im.reshape((1,) + im.shape))/255)
-
-
-def transform_target(lab):
-    lab = torchtransforms.CenterCrop(324)(torchtransforms.CenterCrop(508)(lab))
-    return torch.stack([lab == 0, lab == 255],axis = 1).type(torch.float16)
-     
-
-def transform_target2(lab):
-    lab = torchtransforms.CenterCrop(324)(torchtransforms.CenterCrop(508)(lab))
-    return (lab / 255).type(torch.long)
-     
-
 
 model = unet.Unet().to(device)
 model.pretraining_initialise()
 
 training_data = dataloader.Segmentation_Dataset('./training_data/images',
-                                                './training_data/labels',
-                                                transform = transform_im,
-                                                target_transform = transform_target2)
+                                                './training_data/labels')
+
+im,labels = training_data.__getitem__(0)
+
+def show_labels(im,labels, alpha = 0.5):
+    #just checks the labels by overlaying on imag
+    im_sh = np.array(im.shape[-2:])
+    lab_sh = np.array(labels.shape[-2:])
+    diff_sh = (im_sh - lab_sh)/2
+    b,a = np.floor(diff_sh).astype(int), np.ceil(diff_sh).astype(int)
+    
+    fig,ax = plt.subplots()
+    ax.imshow(np.squeeze(im),cmap = 'Greys_r')
+    
+    labels = np.pad(np.squeeze(labels),((b[0],a[0]),(b[1],a[1])))
+    overlay = labels[...,None]*np.array([255,0,0,int(255*alpha)])
+    ax.imshow(overlay)
+    
+show_labels(im,labels)
 
 
 loss_fn = torch.nn.CrossEntropyLoss()
