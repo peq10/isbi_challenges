@@ -85,15 +85,15 @@ class Unet(torch.nn.Module):
         #Define the convolutional layers for the encoding
         channels_out  = [64*2**x for x in range(5)]
         channels_in   = [1] + channels_out[:-1]
-        self.encoder_convs = [double_conv(*x) for x in zip(channels_in,channels_out)]
+        self.encoder_convs = torch.nn.ModuleList([double_conv(*x) for x in zip(channels_in,channels_out)])
         self.max_pool_2x2 = torch.nn.MaxPool2d(kernel_size = 2,stride = 2)
         
 
         #define the upsampling transpose convolutions so use the reverse channels
-        self.up_convs = [torch.nn.ConvTranspose2d(*x, kernel_size = 2, stride = 2, padding = 0) for x in zip(channels_out,channels_in)][:0:-1]
+        self.up_convs = torch.nn.ModuleList([torch.nn.ConvTranspose2d(*x, kernel_size = 2, stride = 2, padding = 0) for x in zip(channels_out,channels_in)][:0:-1])
         #The double convs are on the concatenated data with the passover connections
         #so have the same number of channels
-        self.decoder_convs = [double_conv(*x) for x in zip(channels_out,channels_in)][:0:-1]
+        self.decoder_convs = torch.nn.ModuleList([double_conv(*x) for x in zip(channels_out,channels_in)][:0:-1])
         
         self.output_conv = torch.nn.Conv2d(64, 2, kernel_size =  1, padding = 0)
         self.sigmoid = torch.nn.Sigmoid()
@@ -118,7 +118,7 @@ class Unet(torch.nn.Module):
         
         #We don't actually need to save these intermediate layers now as they are
         #not used, but they aree useful for debugging so for now we will
-        for idx, crop, up_conv_layer, decoder_conv_layer in zip(range(5), self.crops, self.up_convs,self.decoder_convs):
+        for idx, (crop, up_conv_layer, decoder_conv_layer) in enumerate(zip(self.crops, self.up_convs,self.decoder_convs)):
             #upsample and concatenate with encoded result for passover connections
             self.intermediates.append(torch.cat([self.intermediates[7 - 2*idx][...,crop:-crop,crop:-crop], 
                                                  up_conv_layer(self.intermediates[-1])],dim = 1))

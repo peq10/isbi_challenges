@@ -19,13 +19,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('Using {} device'.format(device))
 
 
-model = unet.Unet().to(device)
+model = unet.Unet()
 model.pretraining_initialise()
+model.to(device)
 
 training_data = dataloader.Segmentation_Dataset('./training_data/images',
                                                 './training_data/labels')
 
-im,labels = training_data.__getitem__(0)
 
 def show_labels(im,labels, alpha = 0.5):
     #just checks the labels by overlaying on imag
@@ -41,8 +41,6 @@ def show_labels(im,labels, alpha = 0.5):
     overlay = labels[...,None]*np.array([255,0,0,int(255*alpha)])
     ax.imshow(overlay)
     
-show_labels(im,labels)
-
 
 loss_fn = torch.nn.CrossEntropyLoss()
 def calculate_loss(loss_fn, output, labels):
@@ -51,7 +49,9 @@ def calculate_loss(loss_fn, output, labels):
 
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-for epoch in range(2):  # loop over the dataset multiple times
+losses = []
+model.cuda()
+for epoch in range(5):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate(training_data):
@@ -70,10 +70,10 @@ for epoch in range(2):  # loop over the dataset multiple times
         # print statistics
         running_loss += loss.item()
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
-        break
-    break
-        
+        losses.append(loss.item())
 
 print('Finished Training')
 
 print(model)
+
+torch.save(model.state_dict(), './training_data/trained_model.nn')
