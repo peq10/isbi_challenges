@@ -69,11 +69,15 @@ for epoch in range(5):  # loop over the dataset multiple times
 
         # print statistics
         running_loss += loss.item()
-        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
-        losses.append(loss.item())
+
+        if i % 100 == 0:
+            print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
+            losses.append((epoch, i, loss.item()))
 
 print('Finished Training')
 
 print(model)
 
 torch.save(model.state_dict(), './training_data/trained_model.nn')
+
+np.savetxt('./training_data/losses.txt', losses)
