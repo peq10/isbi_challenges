@@ -106,7 +106,8 @@ def train_unet(
 
         Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
         torch.save(
-            unet.state_dict(), Path(checkpoint_dir, f"checkpoint_epoch{epoch + 1}.nn"),
+            unet.state_dict(),
+            Path(checkpoint_dir, f"checkpoint_epoch{epoch + 1}.nn"),
         )
         logging.info(f"Checkpoint {epoch + 1} saved!")
 
