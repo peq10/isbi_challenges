@@ -14,6 +14,7 @@ import sys
 import torch.optim as optim
 
 from pathlib import Path
+from tqdm import tqdm
 
 from isbi.models import unet, dataloader
 
@@ -28,6 +29,7 @@ def train_unet(
     class_weights=None,
     training_directory="./training_data/",
     augmentation=1,
+    use_wandb=False,
 ):
 
     # get dataset
@@ -41,16 +43,17 @@ def train_unet(
     # TODO
 
     # log data
-    experiment = wandb.init(project="Unet", resume="allow", anonymous="must")
-    experiment.config.update(
-        dict(
-            epochs=epochs,
-            batch_size=batch_size,
-            learning_rate=learning_rate,
-            validation_frac=validation_frac,
-            class_weights=class_weights,
+    if use_wandb:
+        experiment = wandb.init(project="Unet", resume="allow", anonymous="must")
+        experiment.config.update(
+            dict(
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                validation_frac=validation_frac,
+                class_weights=class_weights,
+            )
         )
-    )
     checkpoint_dir = Path(training_directory, "checkpoints")
 
     logging.info(
@@ -64,34 +67,46 @@ def train_unet(
 
     # get the optimizer and loss
     optimizer = optim.SGD(unet.parameters(), lr=0.001, momentum=0.9)
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
+    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     def calculate_loss(loss_fn, output, labels):
         return loss_fn(output.reshape((2, -1)).T, labels.reshape(-1))
 
+    global_step = 0
+
     for epoch in range(epochs):
         running_loss = 0.0
+        with tqdm(
+            total=len(dataset), desc=f"Epoch {epoch + 1}/{epochs}", unit=" img"
+        ) as pbar:
+            for i, data in enumerate(dataset):
+                # get the inputs; data is a list of [inputs, labels]
+                im, labels = data[0].to(device), data[1].to(device)
 
-        for i, data in enumerate(dataset):
-            # get the inputs; data is a list of [inputs, labels]
-            im, labels = data[0].to(device), data[1].to(device)
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+                # forward + backward + optimize
+                output = unet(im)
+                loss = calculate_loss(loss_fn, output, labels)
+                loss.backward()
+                optimizer.step()
 
-            # forward + backward + optimize
-            output = unet(im)
-            loss = calculate_loss(loss_fn, output, labels)
-            loss.backward()
-            optimizer.step()
+                # log statistics
+                running_loss += loss.item()
+                global_step += 1
 
-            # print statistics
-            running_loss += loss.item()
+                pbar.update(i)
+                pbar.set_postfix(**{"loss (batch)": loss.item()})
+
+                if use_wandb:
+                    experiment.log(
+                        {"train loss": loss.item(), "step": global_step, "epoch": epoch}
+                    )
 
         Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
         torch.save(
-            unet.state_dict(),
-            Path(checkpoint_dir, f"checkpoint_epoch{epoch + 1}.nn"),
+            unet.state_dict(), Path(checkpoint_dir, f"checkpoint_epoch{epoch + 1}.nn"),
         )
         logging.info(f"Checkpoint {epoch + 1} saved!")
 
@@ -118,6 +133,8 @@ if __name__ == "__main__":
             validation_frac=0.1,
             class_weights=torch.tensor([0.8, 0.2]),
             training_directory=training_dir,
+            augmentation=1000,
+            use_wandb=False,
         )
     except KeyboardInterrupt:
         torch.save(model.state_dict(), Path(training_dir, "INTERRUPTED.nn"))
