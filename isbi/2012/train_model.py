@@ -20,8 +20,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('Using {} device'.format(device))
 
 
-model = unet.Unet().to(device)
+model = unet.Unet()
 model.pretraining_initialise()
+model.to(device)
 
 training_data = dataloader.Segmentation_Dataset('./training_data/images',
                                                 './training_data/labels')
@@ -38,7 +39,9 @@ def calculate_loss(loss_fn, output, labels):
 
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-for epoch in range(2):  # loop over the dataset multiple times
+losses = []
+model.cuda()
+for epoch in range(5):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate(training_data):
@@ -56,11 +59,15 @@ for epoch in range(2):  # loop over the dataset multiple times
 
         # print statistics
         running_loss += loss.item()
-        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
-        break
-    break
-        
+
+        if i % 100 == 0:
+            print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
+            losses.append((epoch, i, loss.item()))
 
 print('Finished Training')
 
 print(model)
+
+torch.save(model.state_dict(), './training_data/trained_model.nn')
+
+np.savetxt('./training_data/losses.txt', losses)
