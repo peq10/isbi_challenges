@@ -49,6 +49,7 @@ def calculate_loss(loss_fn, output, labels):
 
 optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
+print(len(training_data))
 losses = []
 model.cuda()
 for epoch in range(5):  # loop over the dataset multiple times
@@ -73,6 +74,13 @@ for epoch in range(5):  # loop over the dataset multiple times
         if i % 100 == 0:
             print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / (i+1)))
             losses.append((epoch, i, loss.item()))
+
+        if i > 0 and i % 20000 == 0:
+            torch.save(model.state_dict(), './training_data/trained_model2.nn')
+
+            np.savetxt('./training_data/losses.txt', losses)
+            break
+ 
 
 print('Finished Training')
 
