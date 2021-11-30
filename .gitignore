@@ -129,3 +129,5 @@ dmypy.json
 .pyre/
 
 training_data/
+
+.DS_Store
