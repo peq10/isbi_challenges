@@ -1,5 +1,7 @@
 import torch.nn
 
+from basicsr.models.archs.edvr_arch import PCDAlignment
+
 
 class ResBlock(torch.nn.Module):
     # Conv block with residual passthrough
@@ -37,18 +39,46 @@ class DownBlock(torch.nn.Module):
 class Fusion(torch.nn.Module):
     # currently just averages - need to implement registration
     # with downsampled features and fusion with the registration
-    def __init__(self):
+    def __init__(self, features=64):
         super(Fusion, self).__init__()
-        self.test_conv = torch.nn.Conv2d(64, 64, 1, 1, bias=True)
 
-    def forward(
-        self,
-        feat1,
-        feat2,
-        feat4,
-    ):
-        # currently just returns the first of the frames
-        return self.test_conv(feat1)[::2, ...]
+        # Add strided convolutions for the fusion for nonlocal features in reg
+        self.down_conv2 = DownBlock(features=features)
+        self.down_conv4 = DownBlock(features=features)
+
+        # Using pyramidal cascading deformable convolution to align features
+        self.PCDAlignment = PCDAlignment(num_feat=features, deformable_groups=8)
+
+        # just use a single convolution to fuse the 2 features into 1
+        self.fusion = torch.nn.Conv2d(2 * features, features, kernel_size=1, stride=1)
+
+    def forward(self, feat):
+        # get 2x and 4x downsampled - the pyramidal representation required for PCD
+        feat2 = self.down_conv2(feat)
+        feat4 = self.down_conv4(feat2)
+
+        # PCD requires list[tensor] of pyramid levels with shape (b,c,h,w)
+        # so we need to rearrange as we have (b*c, h, w)
+        # for each pyramid level
+        batch_size = feat.shape[0] // 2
+
+        # align the features
+        aligned = self.PCDAlignment(
+            [
+                feat[::batch_size, :, :],
+                feat2[::batch_size, :, :],  # t - 1 features at 3 different resolutions
+                feat4[::batch_size, :, :],
+            ],
+            [
+                feat[1::batch_size, :, :],
+                feat2[1::batch_size, :, :],  # t + 1 features
+                feat4[1::batch_size, :, :],
+            ],
+        )
+
+        # and fuse with a simple conv
+        fused = self.fusion(aligned)
+        return fused
 
 
 class InterpNet(torch.nn.Module):
@@ -71,13 +101,9 @@ class InterpNet(torch.nn.Module):
             [ResBlock(features=features) for x in range(res_blocks)]
         )
 
-        # Add strided convolutions for the fusion for nonlocal features in reg
-        self.down_conv2 = DownBlock(features=features)
-        self.down_conv4 = DownBlock(features=features)
-
         # Registration and fusion
         # TODO - currently just a passthrough (this is the main bit!!)
-        self.fusion = Fusion()
+        self.fusion = Fusion(features=features)
 
         # Decoder output
         self.decoder = torch.nn.ModuleList(
@@ -94,17 +120,13 @@ class InterpNet(torch.nn.Module):
         h, w = x.shape[-2:]
 
         # feature extraction
-        feat1 = self.lrelu(self.entry_conv(x.view((-1, 1, h, w))))
+        feat = self.lrelu(self.entry_conv(x.view((-1, 1, h, w))))
         for block in self.encoder:
-            feat1 = block(feat1)
+            feat = block(feat)
 
-        # get 2x and 4x downsampled
-        feat2 = self.down_conv2(feat1)
-        feat4 = self.down_conv4(feat2)
-
-        print(feat1.shape)
+        print(feat.shape)
         # register and fuse
-        out = self.fusion(feat1, feat2, feat4)
+        out = self.fusion(feat)
 
         print(out.shape)
 
