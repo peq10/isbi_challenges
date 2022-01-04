@@ -1,5 +1,4 @@
 import torch.nn
-
 from basicsr.models.archs.edvr_arch import PCDAlignment
 
 
@@ -8,10 +7,10 @@ class ResBlock(torch.nn.Module):
     def __init__(self, features=64):
         super(ResBlock, self).__init__()
         self.conv1 = torch.nn.Conv2d(
-            features, features, kernel_size=3, padding="same", bias=True
+            features, features, kernel_size=3, padding=1, bias=True
         )
         self.conv2 = torch.nn.Conv2d(
-            features, features, kernel_size=3, padding="same", bias=True
+            features, features, kernel_size=3, padding=1, bias=True
         )
 
     def forward(self, x):
@@ -50,7 +49,9 @@ class Fusion(torch.nn.Module):
         self.PCDAlignment = PCDAlignment(num_feat=features, deformable_groups=8)
 
         # just use a single convolution to fuse the 2 features into 1
-        self.fusion = torch.nn.Conv2d(2 * features, features, kernel_size=1, stride=1)
+        self.fusion = torch.nn.Conv2d(
+            2 * features, features, kernel_size=1, stride=1, bias=True
+        )
 
     def forward(self, feat):
         # get 2x and 4x downsampled - the pyramidal representation required for PCD
@@ -58,23 +59,31 @@ class Fusion(torch.nn.Module):
         feat4 = self.down_conv4(feat2)
 
         # PCD requires list[tensor] of pyramid levels with shape (b,c,h,w)
-        # so we need to rearrange as we have (b*c, h, w)
+        # so we need to rearrange as we have (b*t, c, h, w)
         # for each pyramid level
         batch_size = feat.shape[0] // 2
 
-        # align the features
+        # align the features - this aligns to the second argument
+        # TODO rearrange slicing so memory is automatically contiguous
         aligned = self.PCDAlignment(
             [
-                feat[::batch_size, :, :],
-                feat2[::batch_size, :, :],  # t - 1 features at 3 different resolutions
-                feat4[::batch_size, :, :],
+                feat[::batch_size, :, :, :].contiguous(),
+                feat2[
+                    ::batch_size, :, :, :
+                ].contiguous(),  # t - 1 features at 3 different resolutions (to be aligned)
+                feat4[::batch_size, :, :, :].contiguous(),
             ],
             [
-                feat[1::batch_size, :, :],
-                feat2[1::batch_size, :, :],  # t + 1 features
-                feat4[1::batch_size, :, :],
+                feat[1::batch_size, :, :, :].contiguous(),
+                feat2[
+                    1::batch_size, :, :, :
+                ].contiguous(),  # t + 1 features - (reference features)
+                feat4[1::batch_size, :, :, :].contiguous(),
             ],
         )
+
+        # concatenate the aligned and reference
+        aligned = torch.cat([aligned, feat[1::batch_size, :, :, :]], dim=1)
 
         # and fuse with a simple conv
         fused = self.fusion(aligned)
@@ -102,7 +111,6 @@ class InterpNet(torch.nn.Module):
         )
 
         # Registration and fusion
-        # TODO - currently just a passthrough (this is the main bit!!)
         self.fusion = Fusion(features=features)
 
         # Decoder output
@@ -124,11 +132,8 @@ class InterpNet(torch.nn.Module):
         for block in self.encoder:
             feat = block(feat)
 
-        print(feat.shape)
         # register and fuse
         out = self.fusion(feat)
-
-        print(out.shape)
 
         # decode
         for block in self.decoder:
@@ -139,6 +144,7 @@ class InterpNet(torch.nn.Module):
 
 
 if __name__ == "__main__":
+    device = "cuda"
     images = torch.rand(2, 2, 1, 512, 512)
-    model = InterpNet()
-    print(model(images))
+    model = InterpNet().to(device)
+    print(model(images.to(device)))
