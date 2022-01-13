@@ -1,0 +1,3 @@
+[submodule "EDVR"]
+	path = EDVR
+	url = https://github.com/xinntao/EDVR.git

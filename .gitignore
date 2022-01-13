@@ -131,3 +131,5 @@ dmypy.json
 training_data/
 
 .DS_Store
+
+wandb/

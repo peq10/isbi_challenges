@@ -16,7 +16,7 @@ import torch.optim as optim
 from pathlib import Path
 from tqdm import tqdm
 
-from isbi.models import unet, dataloader
+from isbi.models.unet import unet, dataloader
 
 
 def train_unet(
