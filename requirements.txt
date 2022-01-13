@@ -3,7 +3,8 @@ pytorch==1.9
 pytorch-cpu==1.9
 torchvision==0.10
 wandb
-
-
+tqdm
 -r ./EDVR/requirements.txt
 -e ./EDVR
+
+
